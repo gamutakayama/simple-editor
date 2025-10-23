@@ -190,6 +190,57 @@
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
     <script>
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("id") || "0";
+
+      const debounce = (callback, wait) => {
+        let timeoutId;
+
+        return (...args) => {
+          window.clearTimeout(timeoutId);
+          timeoutId = window.setTimeout(() => callback(...args), wait);
+        };
+      };
+
+      const DB_NAME = "simple-editor-db";
+      const DB_VERSION = 1;
+      const DB_STORE_NAME = "simple-editor";
+
+      let dbPromise;
+
+      const getDB = () => {
+        if (dbPromise) return dbPromise;
+
+        dbPromise = new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore(DB_STORE_NAME, { keyPath: "id" });
+          };
+        });
+
+        return dbPromise;
+      };
+
+      const loadState = async () => {
+        const db = await getDB();
+
+        return new Promise((resolve) => {
+          const transaction = db.transaction(DB_STORE_NAME, "readonly");
+          const request = transaction.objectStore(DB_STORE_NAME).get(id);
+          request.onsuccess = () => resolve(request.result || {});
+          request.onerror = () => resolve({});
+        });
+      };
+
+      const saveState = async (state) => {
+        const db = await getDB();
+
+        const transaction = db.transaction(DB_STORE_NAME, "readwrite");
+        transaction.objectStore(DB_STORE_NAME).put({ id, ...state });
+      };
+
       window.addEventListener("beforeunload", (event) => {
         event.preventDefault();
         event.returnValue = true;
@@ -207,44 +258,70 @@
         },
       });
 
-      require(["vs/editor/editor.main"], () => {
+      require(["vs/editor/editor.main"], async () => {
+        const state = await loadState();
+
+        const languages = monaco.languages.getLanguages();
+        const languageIds = languages.map((language) => language.id);
+
+        if (!languageIds.includes(state.language)) {
+          state.language = "plaintext";
+        }
+
         const editor = monaco.editor.create(
           document.getElementById("container"),
           {
             automaticLayout: true,
+            language: state.language,
             tabSize: 2,
             theme: getPreferredTheme(),
-            value: "Hello",
+            value: state.value || "Hello",
           }
         );
+
+        const languagesElement = document.getElementById("languages");
+        languages.forEach((lang) => {
+          const option = document.createElement("option");
+          option.text = lang.aliases?.[0] || lang.id;
+          option.value = lang.id;
+
+          languagesElement.appendChild(option);
+        });
+        languagesElement.value = state.language;
+        languagesElement.addEventListener("change", (event) => {
+          editor.getModel().setLanguage(event.target.value);
+        });
+
+        if (state.position) {
+          editor.setPosition(state.position);
+          editor.revealPositionInCenter(state.position);
+        }
+
+        editor.focus();
 
         document.getElementById("clear").addEventListener("click", () => {
           editor.getModel().setValue("");
           editor.focus();
         });
 
-        const languagesElement = document.getElementById("languages");
-        languagesElement.addEventListener("change", (event) => {
-          editor.getModel().setLanguage(event.target.value);
-        });
+        const save = debounce(() => {
+          saveState({
+            language: editor.getModel().getLanguageId(),
+            value: editor.getValue(),
+            position: editor.getPosition(),
+          });
+        }, 233);
 
-        const languages = monaco.languages.getLanguages();
-        languages.forEach((lang) => {
-          const option = document.createElement("option");
-          if (lang.aliases && lang.aliases.length) {
-            option.text = lang.aliases[0];
-          } else {
-            option.text = lang.id;
-          }
-          option.value = lang.id;
-          languagesElement.appendChild(option);
-        });
+        editor.onDidChangeModelLanguage(save);
+        editor.onDidChangeModelContent(save);
 
         const cursorPositionText = document.getElementById("cursor-position");
         editor.onDidChangeCursorPosition(() => {
           const { lineNumber, column } = editor.getPosition();
 
           cursorPositionText.innerText = `Ln ${lineNumber}, Col ${column}`;
+
+          save();
         });
 
         window
