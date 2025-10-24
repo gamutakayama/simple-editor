@@ -292,15 +292,14 @@
           editor.getModel().setLanguage(event.target.value);
         });
 
-        if (state.position) {
-          editor.setPosition(state.position);
-          editor.revealPositionInCenter(state.position);
+        if (state.viewState) {
+          editor.restoreViewState(state.viewState);
         }
 
         editor.focus();
 
         document.getElementById("clear").addEventListener("click", () => {
-          editor.getModel().setValue("");
+          editor.setValue("");
           editor.focus();
         });
 
@@ -308,12 +307,9 @@
           saveState({
             language: editor.getModel().getLanguageId(),
             value: editor.getValue(),
-            position: editor.getPosition(),
+            viewState: editor.saveViewState(),
           });
         }, 233);
-
-        editor.onDidChangeModelLanguage(save);
-        editor.onDidChangeModelContent(save);
 
         const cursorPositionText = document.getElementById("cursor-position");
         editor.onDidChangeCursorPosition(() => {
@@ -323,6 +319,10 @@
 
           save();
         });
+
+        editor.onDidChangeModelContent(save);
+        editor.onDidChangeModelLanguage(save);
+        editor.onDidScrollChange(save);
 
         window
           .matchMedia("(prefers-color-scheme: dark)")
