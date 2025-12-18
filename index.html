@@ -274,20 +274,6 @@
         });
       };
 
-      const deleteState = async () => {
-        const db = await getDB();
-
-        return new Promise((resolve) => {
-          const transaction = db.transaction(DB_STORE_NAME, "readwrite");
-          const request = transaction.objectStore(DB_STORE_NAME).delete(id);
-          request.onsuccess = () => {
-            saving = false;
-            resolve();
-          };
-          request.onerror = () => resolve();
-        });
-      };
-
       const appendIDsOptions = async () => {
         const db = await getDB();
 
@@ -363,7 +349,7 @@
             language: state.language,
             tabSize: 2,
             theme: getPreferredTheme(),
-            value: state.value ?? "Hello",
+            value: state.value,
           }
         );
 
@@ -384,16 +370,11 @@
         editor.focus();
 
         const save = debounce(() => {
-          const value = editor.getValue();
-          if (value) {
-            putState({
-              language: editor.getModel().getLanguageId(),
-              value,
-              viewState: editor.saveViewState(),
-            });
-          } else {
-            deleteState();
-          }
+          putState({
+            language: editor.getModel().getLanguageId(),
+            value: editor.getValue(),
+            viewState: editor.saveViewState(),
+          });
         }, 233);
 
         const handleChanged = () => {
